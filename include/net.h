@@ -1,7 +1,6 @@
 /**
  * OS neutral socket interface implementation.
- * Implement the functions in this header for different operating systems
- * and the program will work.
+ * Implement the functions in this header for different operating systems.
  */
 
 #pragma once
