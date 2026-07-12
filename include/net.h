@@ -1,7 +1,13 @@
+/**
+ * OS neutral socket interface implementation.
+ * Implement the functions in this header for different operating systems
+ * and the program will work.
+ */
+
 #pragma once
 
 #include <stddef.h>
-#include <sys/types.h> // Note: if you want pure portability later, we can use int or long, but ssize_t is standard for POSIX net IO
+#include <sys/types.h> 
 #include <stdint.h>
 
 typedef int32_t net_socket_t;

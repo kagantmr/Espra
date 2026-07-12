@@ -1,3 +1,7 @@
+/**
+ * Generic logging utilities.
+ */
+
 #pragma once
 
 #include <stdio.h>

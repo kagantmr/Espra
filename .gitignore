@@ -1,0 +1,25 @@
+# Build artifacts
+*.o
+*.d
+*.obj
+*.a
+*.so
+*.dylib
+*.exe
+
+# Build output directories
+bin/
+obj/
+
+# Test/build leftovers
+*.out
+*.log
+
+# macOS
+.DS_Store
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo

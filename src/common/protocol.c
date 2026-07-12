@@ -1,4 +1,6 @@
 #include "protocol.h"
+#include <string.h>
+#include "logging.h"
 #include <arpa/inet.h> // For ntohl
 
 packet_status_t packet_read(net_socket_t sock, espra_header_t *out_header, void *payload_buf, size_t max_payload_len) {
@@ -22,12 +24,22 @@ packet_status_t packet_read(net_socket_t sock, espra_header_t *out_header, void 
         return PACKET_ERR_PAYLOAD;
     }
 
-    // Stage 2: Read the payload bytes if they exist
     if (payload_len > 0) {
         if (net_recv_exact(sock, payload_buf, payload_len) != 0) {
             return PACKET_DISCONNECTED;
         }
     }
+
+    return PACKET_OK;
+}
+
+packet_status_t packet_write(net_socket_t sock, const espra_header_t *header, const void *payload) {
+    espra_header_t hdr;
+    memcpy(&hdr, header, sizeof(espra_header_t));
+    hdr.packet_len = htonl(header->packet_len);
+    
+    net_send(sock, &hdr, sizeof(hdr));
+    net_send(sock, payload, header->packet_len - sizeof(hdr));
 
     return PACKET_OK;
 }
