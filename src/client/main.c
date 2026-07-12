@@ -41,15 +41,47 @@ int main(void) {
 
     espra_header_t serv_hdr;
 
-    packet_read(sock, &serv_hdr, reply_buf, CLIENT_BUF_SZ);
-
-    if (serv_hdr.command != ESPRA_CMD_AUTH_RESP) {
-        LOG_ERROR("Authentication rejected by server!");
+    packet_status_t status = packet_read(sock, &serv_hdr, reply_buf, CLIENT_BUF_SZ);
+    if (status != PACKET_OK) {
+        LOG_ERROR("Failed to read authentication response from server.");
         net_close(sock);
         return -1;
     }
 
+    if (serv_hdr.command != ESPRA_CMD_AUTH_RESP) {
+        LOG_ERROR("Protocol error: Expected authentication response.");
+        net_close(sock);
+        return -1;
+    }
+
+    // Check error indicator bit
+    if (serv_hdr.flags & ESPRA_ERROR) {
+        // Extract the single byte error code from the front of the payload buffer
+        uint8_t err_code = (uint8_t)reply_buf[0];
+
+        switch (err_code) {
+            case AUTH_ERR_PWD:
+                printf("Authentication failed: Incorrect global server password.\n");
+                break;
+            case AUTH_ERR_TAKEN:
+                printf("Authentication failed: Username is already in use.\n");
+                break;
+            case AUTH_ERR_FULL:
+                printf("Authentication failed: Server is full (Max 32 clients).\n");
+                break;
+            default:
+                printf("Authentication failed: Unknown server error code (%d).\n", err_code);
+                break;
+        }
+
+        net_close(sock);
+        return -1;
+    }
+
+    printf("Authentication successful! Welcome to ESPRA\n");
+
     while(1) {
+        printf("[%s]:", name);
         if (fgets(input_buf, CLIENT_BUF_SZ, stdin) == NULL) {
             break;
         }
@@ -75,10 +107,10 @@ int main(void) {
 
         switch(serv_hdr.command) {
             case ESPRA_CMD_BCAST: {
-                printf("They said: %s", reply_buf);
+                printf("%s", reply_buf);
             } break;
             case ESPRA_CMD_DMSG: {
-                printf("They said (privately): %s", reply_buf);
+                printf("%s", reply_buf);
             } break;
             default: {
                 printf("They sent an unknown command\n");

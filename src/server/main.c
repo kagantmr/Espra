@@ -12,7 +12,7 @@
 session_t sessions[MAX_CLIENTS];
 espra_mutex_t* registry_lock; 
 
-int session_find_slot() {
+int session_find_slot(void) {
     for (int i = 0; i < MAX_CLIENTS; i++) 
         if (!sessions[i].is_active) return i;
     return -1;
@@ -67,7 +67,6 @@ void* client_handler(void* arg) {
             } break;
             case ESPRA_CMD_DMSG: {
                 const char* target_name = payload;
-                const char *msg_body = payload + ESPRA_NAME_MAX;
 
                 espra_mutex_lock(registry_lock);
                 for (int i = 0; i < MAX_CLIENTS; i++) {
