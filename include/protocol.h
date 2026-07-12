@@ -16,6 +16,13 @@ typedef enum
     ESPRA_CMD_DMSG
 } espra_command_t;
 
+typedef enum {
+    AUTH_SUCCESS = 0, // successfully in
+    AUTH_ERR_PWD,   // wrong global password (later on, wrong password)
+    AUTH_ERR_TAKEN, // username taken
+    AUTH_ERR_FULL // server full
+} auth_status_t;
+
 typedef struct
 {
     uint32_t packet_len;     // Total length of the packet (header + payload) in bytes
@@ -28,8 +35,9 @@ typedef struct
 #define ESPRA_NAME_MAX 16
 #define ESPRA_PWD_MAX 64
 
-#define ESPRA_COMPRESSED(flags) (1u << 1)
-#define ESPRA_ENCRYPTED(flags) (1u << 2)
+#define ESPRA_COMPRESSED (1u << 1)
+#define ESPRA_ENCRYPTED (1u << 2)
+#define ESPRA_ERROR (1u << 8)
 
 typedef enum
 {

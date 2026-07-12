@@ -53,7 +53,7 @@ int main(void) {
         if (fgets(input_buf, CLIENT_BUF_SZ, stdin) == NULL) {
             break;
         }
-        printf("%s said: %s", name, input_buf);
+        printf("[%s]: %s", name, input_buf);
         // net_send(sock, input_buf, strnlen(input_buf, CLIENT_BUF_SZ));
         espra_header_t header;
         header.command = ESPRA_CMD_BCAST;

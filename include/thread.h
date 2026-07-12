@@ -3,7 +3,6 @@
  * Implement this file to port into another operating system.
  */
 
-
 #pragma once
 
 // Forward declarations of our opaque types
