@@ -11,6 +11,8 @@ int main(void) {
 
 
     char name[ESPRA_NAME_MAX];
+    char server_ip[64];
+
     printf("Enter your name: ");
     fflush(stdout);
     if (fgets(name, ESPRA_NAME_MAX, stdin) != NULL) {
@@ -18,11 +20,24 @@ int main(void) {
         name[strcspn(name, "\n")] = '\0';
     }
 
+    printf("Enter server IP: ");
+    fflush(stdout);
+    if (fgets(server_ip, sizeof(server_ip), stdin) != NULL) {
+        server_ip[strcspn(server_ip, "\n")] = '\0';
+    }
+
     net_socket_t sock = net_socket(NET_AF_INET, NET_SOCK_STREAM, 0);
     if (sock < 0) {
         return sock;
     }
-    if (net_connect(sock, "127.0.0.1", ESPRA_PORT) != 0) {
+
+    if (server_ip[0] == '\0') {
+        LOG_ERROR("No server IP provided.");
+        net_close(sock);
+        return -1;
+    }
+
+    if (net_connect(sock, server_ip, ESPRA_PORT) != 0) {
         return -1;
     }
 
