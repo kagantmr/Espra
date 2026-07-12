@@ -1,0 +1,33 @@
+#include "protocol.h"
+#include <arpa/inet.h> // For ntohl
+
+packet_status_t packet_read(net_socket_t sock, espra_header_t *out_header, void *payload_buf, size_t max_payload_len) {
+    // Read the exact size of the fixed header
+    if (net_recv_exact(sock, out_header, sizeof(espra_header_t)) != 0) {
+        return PACKET_DISCONNECTED;
+    }
+
+    // fix network endianness to host endianness for processing
+    out_header->packet_len = ntohl(out_header->packet_len);
+
+    // Calculate dynamic payload size
+    if (out_header->packet_len < sizeof(espra_header_t)) {
+        return PACKET_ERR_HEADER;
+    }
+    size_t payload_len = out_header->packet_len - sizeof(espra_header_t);
+
+    // Guard against buffer overflows
+    if (payload_len > max_payload_len) {
+        LOG_ERROR("packet_read(): Payload size %zu exceeds buffer limit %zu", payload_len, max_payload_len);
+        return PACKET_ERR_PAYLOAD;
+    }
+
+    // Stage 2: Read the payload bytes if they exist
+    if (payload_len > 0) {
+        if (net_recv_exact(sock, payload_buf, payload_len) != 0) {
+            return PACKET_DISCONNECTED;
+        }
+    }
+
+    return PACKET_OK;
+}
