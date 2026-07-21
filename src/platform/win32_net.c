@@ -6,8 +6,10 @@
 #include <string.h>
 #include <stdbool.h>
 
-// Link with the Winsock library automatically in MSVC (if compiling on Windows)
+#if defined(_MSC_VER)
+// Link with the Winsock library automatically in MSVC.
 #pragma comment(lib, "ws2_32.lib")
+#endif
 
 static bool g_winsock_initialized = false;
 
@@ -22,17 +24,38 @@ static bool init_winsock(void) {
     return true;
 }
 
-net_socket_t net_socket(int domain, int type, int protocol) {
+net_socket_t net_socket(net_domain_t domain, net_type_t type, int protocol) {
     if (!init_winsock()) return -1;
 
-    // Map your abstract parameters to native Windows socket calls
-    SOCKET s = socket(domain, type, protocol);
+    int os_domain = (domain == NET_AF_INET) ? AF_INET : AF_INET6;
+    int os_type = (type == NET_SOCK_STREAM) ? SOCK_STREAM : SOCK_DGRAM;
+
+    // Map the abstract socket settings to native Windows calls
+    SOCKET s = socket(os_domain, os_type, protocol);
     if (s == INVALID_SOCKET) {
         return -1;
     }
     
     // Cast the Windows SOCKET handle back into your abstract net_socket_t wrapper
     return (net_socket_t)s;
+}
+
+int net_connect(net_socket_t sock, const char *ip, port_t port) {
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+
+    if (inet_pton(AF_INET, ip, &addr.sin_addr) <= 0) {
+        return -1;
+    }
+
+    if (connect((SOCKET)sock, (struct sockaddr *)&addr, sizeof(addr)) == SOCKET_ERROR) {
+        return -2;
+    }
+
+    return 0;
 }
 
 int net_bind(net_socket_t sock, const char *ip, port_t port) {

@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -Wpedantic -std=c99 -Iinclude
-LDFLAGS = 
+LDFLAGS =
 
 OBJ_DIR = obj
 BIN_DIR = bin
@@ -12,6 +12,9 @@ POSIX_SRCS = $(wildcard src/platform/posix_*.c)
 MAC_SRCS = $(wildcard src/platform/mac_*.c) $(POSIX_SRCS)
 LINUX_SRCS = $(wildcard src/platform/linux_*.c) $(POSIX_SRCS)
 WIN32_SRCS = $(wildcard src/platform/win32_*.c)
+WIN32_LIBS = -lws2_32
+# ncurses is only needed by the client; link it after the objects.
+CLIENT_LIBS = -lncurses
 
 ifeq ($(UNAME_S),Darwin)
 PLATFORM_SRCS = $(MAC_SRCS)
@@ -19,10 +22,16 @@ else ifeq ($(UNAME_S),Linux)
 PLATFORM_SRCS = $(LINUX_SRCS)
 else ifeq ($(findstring MINGW,$(UNAME_S)),MINGW)
 PLATFORM_SRCS = $(WIN32_SRCS)
+LDFLAGS += $(WIN32_LIBS)
+CLIENT_LIBS = -lpdcurses
 else ifeq ($(findstring MSYS,$(UNAME_S)),MSYS)
 PLATFORM_SRCS = $(WIN32_SRCS)
+LDFLAGS += $(WIN32_LIBS)
+CLIENT_LIBS = -lpdcurses
 else ifeq ($(findstring CYGWIN,$(UNAME_S)),CYGWIN)
 PLATFORM_SRCS = $(WIN32_SRCS)
+LDFLAGS += $(WIN32_LIBS)
+CLIENT_LIBS = -lpdcurses
 else
 PLATFORM_SRCS = $(POSIX_SRCS)
 endif
@@ -30,6 +39,8 @@ endif
 # Shared source and object files
 SHARED_SRCS = $(COMMON_SRCS) $(PLATFORM_SRCS)
 SHARED_OBJS = $(patsubst src/%.c, $(OBJ_DIR)/%.o, $(SHARED_SRCS))
+CLIENT_SRCS = $(wildcard src/client/*.c)
+CLIENT_OBJS = $(patsubst src/%.c, $(OBJ_DIR)/%.o, $(CLIENT_SRCS))
 
 # Targets
 SERVER_TARGET = $(BIN_DIR)/server
@@ -45,9 +56,9 @@ $(SERVER_TARGET): $(SHARED_OBJS) $(OBJ_DIR)/server/main.o
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 # Build Client
-$(CLIENT_TARGET): $(SHARED_OBJS) $(OBJ_DIR)/client/main.o
+$(CLIENT_TARGET): $(SHARED_OBJS) $(CLIENT_OBJS)
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS) $(CLIENT_LIBS)
 
 # Compile C source files into Object files
 $(OBJ_DIR)/%.o: src/%.c

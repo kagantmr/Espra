@@ -87,6 +87,21 @@ void* client_handler(void* arg) {
 
 
     espra_mutex_lock(registry_lock);
+
+    espra_header_t sys_hdr = {0};
+    char sys_payload[SERVER_BUF_SZ];
+    snprintf(sys_payload, sizeof(sys_payload), "[System]: %s left the chat.", session->username);
+    
+    sys_hdr.command = ESPRA_CMD_BCAST;
+    sys_hdr.packet_len = sizeof(espra_header_t) + strlen(sys_payload);
+
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (sessions[i].is_active && sessions[i].client_sock != session->client_sock) {
+            packet_write(sessions[i].client_sock, &sys_hdr, sys_payload);
+        }
+    }
+
+
     session->is_active = false;
     net_close(session->client_sock);
     espra_mutex_unlock(registry_lock);
@@ -199,6 +214,20 @@ int main(void) {
         session->is_active = true;
         strncpy(session->username, username, ESPRA_NAME_MAX);
 
+        espra_header_t sys_hdr = {0};
+        char sys_payload[SERVER_BUF_SZ];
+        snprintf(sys_payload, sizeof(sys_payload), "%s joined the chat!", username);
+        
+        sys_hdr.command = ESPRA_CMD_BCAST;
+        sys_hdr.packet_len = sizeof(espra_header_t) + strlen(sys_payload);
+
+        // Sweep the array and tell everyone else
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (sessions[i].is_active && sessions[i].client_sock != client_sock) {
+                packet_write(sessions[i].client_sock, &sys_hdr, sys_payload);
+            }
+        }
+    
         espra_mutex_unlock(registry_lock);
 
         espra_thread_t* thread = espra_thread_create(client_handler, &sessions[slot]);

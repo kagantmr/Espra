@@ -1,7 +1,13 @@
 #include "protocol.h"
 #include <string.h>
 #include "logging.h"
-#include <arpa/inet.h> // For ntohl
+
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#endif
 
 packet_status_t packet_read(net_socket_t sock, espra_header_t *out_header, void *payload_buf, size_t max_payload_len) {
     // Read the exact size of the fixed header
