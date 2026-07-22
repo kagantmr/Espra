@@ -49,6 +49,8 @@ void ui_colors(void)
     init_pair(PAIR_LOGO, COLOR_MAGENTA, -1);
     init_pair(PAIR_LABEL, COLOR_GREEN, -1);
     init_pair(PAIR_ACCENT, COLOR_CYAN, -1);
+    init_pair(PAIR_ERR, COLOR_RED, -1);
+    init_pair(PAIR_INFO, COLOR_GREEN, -1);
     for (int i = 0; i < NICK_PALETTE_N; i++)
         init_pair(PAIR_NICK0 + i, NICK_COLORS[i], -1);
 }
@@ -63,7 +65,7 @@ static void draw_top(client_ctx_t *ctx)
     wattron(ctx->top_bar, A_BOLD);
     mvwprintw(ctx->top_bar, 0, 1, "ESPRA");
     wattroff(ctx->top_bar, A_BOLD);
-    wprintw(ctx->top_bar, "  •  %s  •  #global", ctx->server_ip);
+    wprintw(ctx->top_bar, "  •  %s  •  #%s", ctx->server_ip, ctx->channel);
 
     const char *hint = "^C quit ";
     int hx = cols - (int)strlen(hint);
@@ -186,8 +188,11 @@ void ui_init(client_ctx_t *ctx)
     wbkgd(ctx->top_bar, COLOR_PAIR(PAIR_BAR));
     wbkgd(ctx->status_bar, COLOR_PAIR(PAIR_BAR));
 
+    char chan_title[ESPRA_CHANNEL_MAX + 2];
+    snprintf(chan_title, sizeof(chan_title), "#%s", ctx->channel);
+
     draw_top(ctx);
-    draw_frame(ctx->chat_frame, "#global");
+    draw_frame(ctx->chat_frame, chan_title);
     draw_status(ctx);
     if (ctx->nick_win)
         draw_nicks(ctx);
@@ -220,7 +225,10 @@ void ui_msg(client_ctx_t *ctx, const char *nick, const char *text)
     espra_mutex_unlock(ctx->ui_lock);
 }
 
-void ui_system(client_ctx_t *ctx, const char *text)
+// Shared body for the timestamped notice lines (system / error / info):
+// "HH:MM <tag> text" with the tag+text painted in `pair`. Takes ui_lock.
+static void ui_notice(client_ctx_t *ctx, int pair, const char *tag,
+                      const char *text)
 {
     char hm[8];
     now_hm(hm, sizeof(hm));
@@ -231,14 +239,34 @@ void ui_system(client_ctx_t *ctx, const char *text)
     wprintw(w, "%s ", hm);
     wattroff(w, COLOR_PAIR(PAIR_TIME));
 
-    wattron(w, COLOR_PAIR(PAIR_SYS));
-    wprintw(w, "-!- %s\n", text);
-    wattroff(w, COLOR_PAIR(PAIR_SYS));
+    wattron(w, COLOR_PAIR(pair));
+    wprintw(w, "%s %s\n", tag, text);
+    wattroff(w, COLOR_PAIR(pair));
 
     wnoutrefresh(w);
     ui_render_input(ctx);
     doupdate();
     espra_mutex_unlock(ctx->ui_lock);
+}
+
+void ui_system(client_ctx_t *ctx, const char *text)
+{
+    ui_notice(ctx, PAIR_SYS, "-!-", text);
+}
+
+void ui_error(client_ctx_t *ctx, const char *text)
+{
+    ui_notice(ctx, PAIR_ERR, "[ERROR]", text);
+}
+
+void ui_info(client_ctx_t *ctx, const char *text)
+{
+    ui_notice(ctx, PAIR_INFO, "[INFO]", text);
+}
+
+void ui_sys(client_ctx_t *ctx, const char *text)
+{
+    ui_notice(ctx, PAIR_SYS, "[SYS]", text);
 }
 
 void ui_tick(client_ctx_t *ctx)
@@ -305,61 +333,61 @@ void ui_nick_remove(client_ctx_t *ctx, const char *nick)
     espra_mutex_unlock(ctx->ui_lock);
 }
 
-// ---- Incoming-line parsing ----------------------------------------------
-
-// Recognizes the server's message shapes and routes them to the UI/roster.
-static void route_incoming(client_ctx_t *ctx, char *line)
+void ui_set_channel(client_ctx_t *ctx, const char *channel)
 {
-    // "<name> joined the chat!"  (no leading bracket)
-    char *joined = strstr(line, " joined the chat!");
-    if (line[0] != '[' && joined)
-    {
-        char name[ESPRA_NAME_MAX] = {0};
-        size_t n = (size_t)(joined - line);
-        if (n >= sizeof(name))
-            n = sizeof(name) - 1;
-        memcpy(name, line, n);
-        ui_nick_add(ctx, name);
-        ui_system(ctx, line);
+    if (channel[0] == '\0')
         return;
-    }
+    espra_mutex_lock(ctx->ui_lock);
 
-    // "[System]: <name> left the chat."
-    char *left = strstr(line, " left the chat.");
-    char *body = strstr(line, "]: ");
-    if (left && body && body < left)
-    {
-        char *start = body + 3;
-        char name[ESPRA_NAME_MAX] = {0};
-        size_t n = (size_t)(left - start);
-        if (n >= sizeof(name))
-            n = sizeof(name) - 1;
-        memcpy(name, start, n);
-        ui_nick_remove(ctx, name);
-        ui_system(ctx, line);
-        return;
-    }
+    strncpy(ctx->channel, channel, ESPRA_CHANNEL_MAX - 1);
+    ctx->channel[ESPRA_CHANNEL_MAX - 1] = '\0';
 
-    // "[<nick>]: <msg>"
-    if (line[0] == '[' && body)
-    {
-        size_t namelen = (size_t)(body - (line + 1));
-        if (namelen > 0 && namelen < ESPRA_NAME_MAX)
-        {
-            char nick[ESPRA_NAME_MAX] = {0};
-            memcpy(nick, line + 1, namelen);
-            if (strcmp(nick, "System") != 0)
-            {
-                ui_nick_add(ctx, nick);
-                ui_msg(ctx, nick, body + 3);
-                return;
-            }
-        }
-    }
+    // Roster is per-channel; reset it to just us and re-learn the rest from
+    // traffic in the new channel.
+    ctx->nick_count = 0;
+    strncpy(ctx->nicks[0], ctx->name, ESPRA_NAME_MAX - 1);
+    ctx->nicks[0][ESPRA_NAME_MAX - 1] = '\0';
+    ctx->nick_count = 1;
 
-    // Anything else: show verbatim as a system line.
-    ui_system(ctx, line);
+    char chan_title[ESPRA_CHANNEL_MAX + 2];
+    snprintf(chan_title, sizeof(chan_title), "#%s", ctx->channel);
+
+    draw_top(ctx);
+    draw_frame(ctx->chat_frame, chan_title);
+    if (ctx->nick_win)
+        draw_nicks(ctx);
+    draw_status(ctx);
+    ui_render_input(ctx);
+    doupdate();
+
+    espra_mutex_unlock(ctx->ui_lock);
 }
+
+void ui_set_nick(client_ctx_t *ctx, const char *newname)
+{
+    if (newname[0] == '\0')
+        return;
+    espra_mutex_lock(ctx->ui_lock);
+
+    // Swap our entry in the roster, if present.
+    int idx = nick_index(ctx, ctx->name);
+    strncpy(ctx->name, newname, ESPRA_NAME_MAX - 1);
+    ctx->name[ESPRA_NAME_MAX - 1] = '\0';
+    if (idx >= 0)
+    {
+        strncpy(ctx->nicks[idx], ctx->name, ESPRA_NAME_MAX - 1);
+        ctx->nicks[idx][ESPRA_NAME_MAX - 1] = '\0';
+    }
+
+    if (ctx->nick_win)
+        draw_nicks(ctx);
+    draw_status(ctx);
+    ui_render_input(ctx);
+    doupdate();
+
+    espra_mutex_unlock(ctx->ui_lock);
+}
+
 
 void *listener_thread(void *arg)
 {
@@ -385,10 +413,47 @@ void *listener_thread(void *arg)
 
         switch (serv_hdr.command)
         {
-        case ESPRA_CMD_BCAST:
-        case ESPRA_CMD_DMSG:
-            route_incoming(ctx, reply_buf);
+        case ESPRA_CMD_BCAST: {
+            char nickname[ESPRA_NAME_MAX] = {0};
+            strncpy(nickname, reply_buf, ESPRA_NAME_MAX - 1);
+            nickname[ESPRA_NAME_MAX - 1] = '\0';
+            ui_nick_add(ctx, nickname);
+            ui_msg(ctx, nickname, reply_buf + ESPRA_NAME_MAX);
+        } break;
+        case ESPRA_CMD_ERR:
+            ui_error(ctx, reply_buf);
             break;
+        case ESPRA_CMD_INFO:
+            ui_info(ctx, reply_buf);
+            break;
+        case ESPRA_CMD_SYS:
+            ui_sys(ctx, reply_buf);
+            break;
+        case ESPRA_CMD_DMSG:
+        {
+            char sender[ESPRA_NAME_MAX] = {0};
+            strncpy(sender, reply_buf, ESPRA_NAME_MAX - 1);
+            sender[ESPRA_NAME_MAX - 1] = '\0';
+            char whisper[ESPRA_MSG_MAX];
+            snprintf(whisper, sizeof(whisper), "(whispers) %s", reply_buf + ESPRA_NAME_MAX);
+            ui_msg(ctx, sender, whisper);
+        } break;
+        case ESPRA_CMD_JOIN:
+        {
+            // Server-authoritative channel switch (echoed back after a /join).
+            ui_set_channel(ctx, reply_buf);
+            char note[ESPRA_CHANNEL_MAX + 24];
+            snprintf(note, sizeof(note), "Now talking in #%.*s", ESPRA_CHANNEL_MAX - 1, reply_buf);
+            ui_info(ctx, note);
+        } break;
+        case ESPRA_CMD_NICK:
+        {
+            // Server confirmed our own rename.
+            ui_set_nick(ctx, reply_buf);
+            char note[ESPRA_NAME_MAX + 24];
+            snprintf(note, sizeof(note), "You are now known as %.*s", ESPRA_NAME_MAX - 1, reply_buf);
+            ui_info(ctx, note);
+        } break;
         default:
             break;
         }

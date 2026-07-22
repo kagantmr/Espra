@@ -118,6 +118,121 @@ static WINDOW *login_window(void)
     return w;
 }
 
+// Parses and dispatches a slash-command typed at the input line. `outgoing`
+// is mutated in place while splitting off arguments.
+static void parse_command(client_ctx_t *ctx, char *outgoing, net_socket_t sock)
+{
+    // Split "/cmd rest..." into the command word and its argument tail.
+    char *args = strchr(outgoing, ' ');
+    if (args)
+    {
+        *args++ = '\0';
+        while (*args == ' ')
+            args++;
+    }
+    else
+    {
+        args = outgoing + strlen(outgoing); // points at ""
+    }
+
+    espra_header_t header = {0};
+
+    if (strcmp(outgoing, "/msg") == 0)
+    {
+        // args = "<nick> <message...>"
+        char *text = strchr(args, ' ');
+        if (!text || args[0] == '\0')
+        {
+            ui_error(ctx, "Usage: /msg <nick> <message>");
+            return;
+        }
+        *text++ = '\0';
+        while (*text == ' ')
+            text++;
+        if (*text == '\0')
+        {
+            ui_error(ctx, "Usage: /msg <nick> <message>");
+            return;
+        }
+
+        char payload[ESPRA_NAME_MAX + ESPRA_MSG_MAX];
+        memset(payload, 0, ESPRA_NAME_MAX);
+        strncpy(payload, args, ESPRA_NAME_MAX - 1); // target name field
+        size_t tlen = strnlen(text, ESPRA_MSG_MAX - 1);
+        memcpy(payload + ESPRA_NAME_MAX, text, tlen);
+
+        header.command = ESPRA_CMD_DMSG;
+        header.packet_len = sizeof(espra_header_t) + ESPRA_NAME_MAX + tlen;
+        if (packet_write(sock, &header, payload) != PACKET_OK)
+        {
+            ctx->connected = 0;
+            return;
+        }
+
+        char echo[ESPRA_MSG_MAX];
+        snprintf(echo, sizeof(echo), "(to %s) %.*s", args, (int)tlen, text);
+        ui_info(ctx, echo);
+    }
+    else if (strcmp(outgoing, "/join") == 0)
+    {
+        if (args[0] == '#')
+            args++; // tolerate a leading '#'
+        char *sp = strchr(args, ' ');
+        if (sp)
+            *sp = '\0'; // channel names are a single token
+        if (args[0] == '\0')
+        {
+            ui_error(ctx, "Usage: /join <channel>");
+            return;
+        }
+        header.command = ESPRA_CMD_JOIN;
+        header.packet_len = sizeof(espra_header_t) + strnlen(args, ESPRA_CHANNEL_MAX - 1);
+        if (packet_write(sock, &header, args) != PACKET_OK)
+            ctx->connected = 0;
+        // The UI switches only once the server echoes the JOIN back.
+    }
+    else if (strcmp(outgoing, "/nick") == 0)
+    {
+        char *sp = strchr(args, ' ');
+        if (sp)
+            *sp = '\0';
+        if (args[0] == '\0')
+        {
+            ui_error(ctx, "Usage: /nick <newname>");
+            return;
+        }
+        header.command = ESPRA_CMD_NICK;
+        header.packet_len = sizeof(espra_header_t) + strnlen(args, ESPRA_NAME_MAX - 1);
+        if (packet_write(sock, &header, args) != PACKET_OK)
+            ctx->connected = 0;
+        // ctx->name updates only once the server confirms the rename.
+    }
+    else if (strcmp(outgoing, "/list") == 0)
+    {
+        header.command = ESPRA_CMD_LIST;
+        header.packet_len = sizeof(espra_header_t); // empty request
+        if (packet_write(sock, &header, "") != PACKET_OK)
+            ctx->connected = 0;
+    }
+    else if (strcmp(outgoing, "/help") == 0)
+    {
+        ui_info(ctx, "/msg <nick> <text>  - private message");
+        ui_info(ctx, "/join <channel>     - switch channel");
+        ui_info(ctx, "/nick <newname>     - change your name");
+        ui_info(ctx, "/list               - list channels and users");
+        ui_info(ctx, "/help               - show this list");
+        ui_info(ctx, "/quit               - disconnect");
+    }
+    else if (strcmp(outgoing, "/quit") == 0)
+    {
+        ctx->connected = 0;
+    }
+    else
+    {
+        ui_error(ctx, "Unknown command. Try /help");
+    }
+}
+
 int main(void)
 {
     signal(SIGINT, close_window);
@@ -224,6 +339,8 @@ int main(void)
 
     // ---- Build the chat UI ---------------------------------------------
     ctx.connected = 1;
+    strncpy(ctx.channel, ESPRA_DEFAULT_CHANNEL, ESPRA_CHANNEL_MAX - 1);
+    ctx.channel[ESPRA_CHANNEL_MAX - 1] = '\0';
     ctx.ui_lock = espra_mutex_create();
     if (ctx.ui_lock == NULL)
     {
@@ -239,7 +356,7 @@ int main(void)
     curs_set(1);
 
     ui_nick_add(&ctx, ctx.name); // we're the first known member
-    ui_system(&ctx, "Welcome to ESPRA. Type a message and press Enter.");
+    ui_system(&ctx, "Welcome to ESPRA. Type a message and press Enter, or /help for commands.");
 
     espra_thread_t *thread = espra_thread_create(listener_thread, &ctx);
     if (thread == NULL)
@@ -283,15 +400,21 @@ int main(void)
             doupdate();
             espra_mutex_unlock(ctx.ui_lock);
 
-            // Local echo (the server does not send our own messages back).
-            ui_msg(&ctx, ctx.name, outgoing);
+            if (outgoing[0] == '/') {
+                // a command is being sent
+                parse_command(&ctx, outgoing, sock);
+            } else {
 
-            espra_header_t msg_hdr = {0};
-            msg_hdr.command = ESPRA_CMD_BCAST;
-            msg_hdr.packet_len = sizeof(espra_header_t) + strnlen(outgoing, ESPRA_MSG_MAX);
-            if (packet_write(sock, &msg_hdr, outgoing) != PACKET_OK)
-            {
-                ctx.connected = 0;
+                // Local echo (the server does not send our own messages back).
+                ui_msg(&ctx, ctx.name, outgoing);
+
+                espra_header_t msg_hdr = {0};
+                msg_hdr.command = ESPRA_CMD_BCAST;
+                msg_hdr.packet_len = sizeof(espra_header_t) + strnlen(outgoing, ESPRA_MSG_MAX);
+                if (packet_write(sock, &msg_hdr, outgoing) != PACKET_OK)
+                {
+                    ctx.connected = 0;
+                }
             }
         }
         else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8)

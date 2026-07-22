@@ -11,6 +11,9 @@
 bin/
 obj/
 
+# Vendored dependencies (fetched on demand, e.g. `make TARGET=windows`)
+deps/
+
 # Test/build leftovers
 *.out
 *.log

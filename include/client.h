@@ -13,6 +13,7 @@
 #define ESPRA_MSG_MAX 1024
 #define ESPRA_MAX_NICKS 32 // mirrors the server's MAX_CLIENTS
 #define NICK_PANEL_W 20    // width of the right-hand user list
+#define ESPRA_MAX_CMD 64
 
 // ---- Color pairs (initialized by ui_colors) -----------------------------
 #define PAIR_BAR 1    // title / status bars
@@ -23,7 +24,9 @@
 #define PAIR_LOGO 6   // login banner
 #define PAIR_LABEL 7  // login field labels
 #define PAIR_ACCENT 8 // misc highlights
-#define PAIR_NICK0 9  // first of the rotating nick palette
+#define PAIR_ERR 9    // error notices
+#define PAIR_INFO 10  // info notices
+#define PAIR_NICK0 11 // first of the rotating nick palette
 
 /**
  * Shared client UI state.
@@ -46,8 +49,9 @@ typedef struct
     WINDOW *status_bar; // clock / nick / user count
     WINDOW *input_win;  // single-line editor
 
-    char name[ESPRA_NAME_MAX]; // this client's display name
-    char server_ip[64];        // shown in the status bar
+    char name[ESPRA_NAME_MAX];       // this client's display name
+    char channel[ESPRA_CHANNEL_MAX]; // channel we are currently in
+    char server_ip[64];              // shown in the status bar
 
     // Client-side roster, inferred from join/leave/message traffic.
     char nicks[ESPRA_MAX_NICKS][ESPRA_NAME_MAX];
@@ -75,6 +79,15 @@ void ui_msg(client_ctx_t *ctx, const char *nick, const char *text);
 // Appends a system notice "HH:MM -!- text" in the system color.
 void ui_system(client_ctx_t *ctx, const char *text);
 
+// Appends an error notice "HH:MM [ERROR] text" in the error color.
+void ui_error(client_ctx_t *ctx, const char *text);
+
+// Appends an info notice "HH:MM [INFO] text" in the info color.
+void ui_info(client_ctx_t *ctx, const char *text);
+
+// Appends a server notice "HH:MM [SYS] text" in the system color.
+void ui_sys(client_ctx_t *ctx, const char *text);
+
 // Redraws the input line from ctx->input_buf and parks the cursor.
 // Caller MUST already hold ui_lock.
 void ui_render_input(client_ctx_t *ctx);
@@ -88,6 +101,14 @@ void ui_tick(client_ctx_t *ctx);
 // Adds/removes a nick and repaints the panel + status bar. Take ui_lock.
 void ui_nick_add(client_ctx_t *ctx, const char *nick);
 void ui_nick_remove(client_ctx_t *ctx, const char *nick);
+
+// Switches the displayed channel: repaints the chrome and resets the roster to
+// just this client (channel membership is re-learned from traffic). Take ui_lock.
+void ui_set_channel(client_ctx_t *ctx, const char *channel);
+
+// Applies a confirmed nick change: updates ctx->name, the roster and the
+// prompt. Take ui_lock.
+void ui_set_nick(client_ctx_t *ctx, const char *newname);
 
 // Background network reader. arg is a client_ctx_t*.
 void *listener_thread(void *arg);
