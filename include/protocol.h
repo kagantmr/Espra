@@ -13,14 +13,19 @@ typedef enum
     ESPRA_CMD_AUTH_REQ,
     ESPRA_CMD_AUTH_RESP,
     ESPRA_CMD_BCAST,
-    ESPRA_CMD_DMSG
+    ESPRA_CMD_DMSG,
+    ESPRA_CMD_SYS,
+    ESPRA_CMD_INFO,
+    ESPRA_CMD_ADMIN,
+    ESPRA_CMD_ERR
 } espra_command_t;
 
-typedef enum {
+typedef enum
+{
     AUTH_SUCCESS = 0, // successfully in
-    AUTH_ERR_PWD,   // wrong global password (later on, wrong password)
-    AUTH_ERR_TAKEN, // username taken
-    AUTH_ERR_FULL // server full
+    AUTH_ERR_PWD,     // wrong global password (later on, wrong password)
+    AUTH_ERR_TAKEN,   // username taken
+    AUTH_ERR_FULL     // server full
 } auth_status_t;
 
 typedef struct
